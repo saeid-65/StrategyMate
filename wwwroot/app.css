@@ -36,3 +36,71 @@ h1:focus {
 .form-floating > .form-control-plaintext:focus::placeholder, .form-floating > .form-control:focus::placeholder {
     text-align: start;
 }
+
+/* ================= StrategyMate Theme ================= */
+
+:root {
+    --sm-bg: #f5f7fa;
+}
+
+@import url('https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css');
+
+html, body {
+    font-family: 'Vazirmatn', 'Segoe UI', Tahoma, sans-serif;
+    background-color: var(--sm-bg);
+    color: #1f2937;
+}
+
+/* ---- Cards ---- */
+.card {
+    border-radius: 12px;
+}
+
+.card-header {
+    border-radius: 12px 12px 0 0 !important;
+    padding: 1rem 1.25rem;
+}
+
+/* ---- Table ---- */
+.table thead th {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    border-bottom: 2px solid #e5e7eb;
+    padding: 0.75rem 0.5rem;
+    background-color: #f9fafb;
+}
+
+.table tbody td {
+    padding: 0.65rem 0.5rem;
+    vertical-align: middle;
+}
+
+.table tbody tr:hover {
+    background-color: #eff6ff !important;
+}
+
+/* ---- Buttons ---- */
+.btn {
+    border-radius: 8px;
+    font-weight: 500;
+    padding: 0.5rem 1rem;
+}
+
+/* ---- Badge ---- */
+.badge {
+    font-weight: 500;
+    padding: 0.4em 0.7em;
+    border-radius: 6px;
+}
+
+/* ---- Code ---- */
+code {
+    background-color: #f3f4f6;
+    color: #be185d;
+    padding: 0.15em 0.4em;
+    border-radius: 4px;
+    font-size: 0.85em;
+}

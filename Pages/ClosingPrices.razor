@@ -1,0 +1,269 @@
+﻿@page "/closing-prices"
+@using StrategyMate.Models
+@using StrategyMate.Services
+@using StrategyMate.Helpers
+@using System.Globalization
+@inject ITsetmcService TsetmcService
+@inject ILogger<ClosingPrices> Logger
+
+<div class="container-fluid py-4">
+
+    <!-- ================= Header ================= -->
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-3">
+        <div>
+            <h3 class="mb-1 fw-bold">قیمت‌های پایانی</h3>
+            <small class="text-muted">
+                نماد: <code>@InstrumentId</code>
+                @if (prices is { Count: > 0 })
+                {
+                    <span class="ms-2 badge bg-primary">@prices.Count رکورد</span>
+                }
+            </small>
+        </div>
+
+        <button class="btn btn-primary"
+                @onclick="LoadDataAsync"
+                disabled="@isLoading">
+            @if (isLoading)
+            {
+                <span class="spinner-border spinner-border-sm me-2"></span>
+            }
+            <span>به‌روزرسانی</span>
+        </button>
+    </div>
+
+    <!-- ================= States ================= -->
+
+    @if (isLoading)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;"></div>
+            <div class="mt-3 text-muted">در حال بارگذاری داده‌ها…</div>
+        </div>
+    }
+    else if (errorMessage is not null)
+    {
+        <div class="alert alert-danger d-flex justify-content-between align-items-center">
+            <div>
+                <strong>خطا در دریافت داده‌ها</strong>
+                <div class="small mt-1">@errorMessage</div>
+            </div>
+            <button class="btn btn-sm btn-outline-danger" @onclick="LoadDataAsync">تلاش مجدد</button>
+        </div>
+    }
+    else if (prices is null || prices.Count == 0)
+    {
+        <div class="alert alert-info">داده‌ای برای این نماد یافت نشد.</div>
+    }
+    else
+    {
+        <!-- ================= Return Cards ================= -->
+        <div class="row g-3 mb-4">
+            @foreach (var card in GetReturnCards())
+            {
+                <div class="col-6 col-md-3">
+                    <div class="card border-0 shadow-sm h-100">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <div class="text-muted small">@card.Title</div>
+                                <i class="bi @card.Icon text-muted"></i>
+                            </div>
+
+                            @if (card.HasData)
+                            {
+                                <div class="fs-4 fw-bold @(card.ReturnPercent >= 0 ? "text-success" : "text-danger")">
+                                    @if (card.ReturnPercent >= 0)
+                                    {
+                                        <span>▲</span>
+                                    }
+                                    else
+                                    {
+                                        <span>▼</span>
+                                    }
+                                    @card.ReturnPercent.ToString("F2", CultureInfo.InvariantCulture)%
+                                </div>
+                                <div class="small text-muted mt-1">
+                                    از @card.FromDateValue.ToString("N0", CultureInfo.InvariantCulture)
+                                    به @card.ToDateValue.ToString("N0", CultureInfo.InvariantCulture)
+                                </div>
+                                <div class="small text-muted">
+                                    (@card.FromDate — @card.ToDate)
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="fs-6 text-muted">داده کافی موجود نیست</div>
+                            }
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+
+        <!-- ================= Table ================= -->
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center">
+                <h6 class="mb-0 fw-bold">جدول قیمت‌های پایانی</h6>
+                <span class="badge bg-secondary">@prices.Count رکورد</span>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
+                    <table class="table table-sm table-hover table-striped align-middle mb-0">
+                        <thead class="table-light sticky-top">
+                            <tr>
+                                <th class="text-center" style="width: 50px;">#</th>
+                                <th>تاریخ</th>
+                                <th class="text-end">قیمت پایانی</th>
+                                <th class="text-end">تغییر</th>
+                                <th class="text-end">درصد</th>
+                                <th class="text-end">کمینه</th>
+                                <th class="text-end">بیشینه</th>
+                                <th class="text-end">حجم (میلیون)</th>
+                                <th class="text-end">ارزش (میلیارد)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @{ var index = 0; }
+                            @foreach (var item in prices.OrderByDescending(p => p.Date))
+                            {
+                                index++;
+                                <tr @key="index">
+                                    <td class="text-center text-muted small">@index</td>
+                                    <td>@item.Date.ToPersianDate()</td>
+                                    <td class="text-end fw-semibold">@item.AdjustedClosingPrice.ToString("N0", CultureInfo.InvariantCulture)</td>
+                                    <td class="text-end @(item.PriceChange >= 0 ? "text-success" : "text-danger")">
+                                        @item.PriceChange.ToString("N0", CultureInfo.InvariantCulture)
+                                    </td>
+                                    <td class="text-end @(item.PriceChangePercent >= 0 ? "text-success" : "text-danger")">
+                                        @item.PriceChangePercent.ToString("F2", CultureInfo.InvariantCulture)%
+                                    </td>
+                                    <td class="text-end text-muted">@item.MinPrice.ToString("N0", CultureInfo.InvariantCulture)</td>
+                                    <td class="text-end text-muted">@item.MaxPrice.ToString("N0", CultureInfo.InvariantCulture)</td>
+                                    <td class="text-end">@item.VolumeInMillions.ToString("N2", CultureInfo.InvariantCulture)</td>
+                                    <td class="text-end">@item.ValueInBillions.ToString("N2", CultureInfo.InvariantCulture)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    // ================= ثابت: نماد مورد نظر =================
+    private const string InstrumentId = "19040514831923530";
+
+    // ================= State =================
+    private List<DailyClosingPrice>? prices;
+    private bool isLoading;
+    private string? errorMessage;
+
+    // ================= Lifecycle =================
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDataAsync();
+    }
+
+    // ================= Data Loading =================
+    private async Task LoadDataAsync()
+    {
+        isLoading = true;
+        errorMessage = null;
+
+        try
+        {
+            Logger.LogInformation("Loading closing prices for InstrumentId={InstrumentId}", InstrumentId);
+
+            var data = await TsetmcService.GetClosingPricesAsync(InstrumentId);
+
+            prices = data
+            .OrderBy(p => p.Date)
+            .ToList();
+
+            Logger.LogInformation("Loaded {Count} records for InstrumentId={InstrumentId}",
+                prices.Count, InstrumentId);
+        }
+        catch (HttpRequestException ex)
+        {
+            errorMessage = $"خطای شبکه: {ex.Message}";
+            Logger.LogError(ex, "HTTP error for InstrumentId={InstrumentId}", InstrumentId);
+        }
+        catch (System.Text.Json.JsonException ex)
+        {
+            errorMessage = $"خطای پردازش داده: {ex.Message}";
+            Logger.LogError(ex, "JSON error for InstrumentId={InstrumentId}", InstrumentId);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"خطای ناشناخته: {ex.Message}";
+            Logger.LogError(ex, "Unexpected error for InstrumentId={InstrumentId}", InstrumentId);
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    // ================= Return Cards =================
+
+    private record ReturnCard(
+        string Title,
+        string Icon,
+        bool HasData,
+        decimal ReturnPercent,
+        decimal FromDateValue,
+        decimal ToDateValue,
+        string FromDate,
+        string ToDate);
+
+    private List<ReturnCard> GetReturnCards()
+    {
+        var result = new List<ReturnCard>();
+
+        if (prices is null || prices.Count == 0)
+            return result;
+
+        // آخرین قیمت موجود = قیمت مرجع
+        var latest = prices.Last();
+        var latestDate = latest.Date;
+        var latestPrice = latest.AdjustedClosingPrice;
+
+        // بازه‌های زمانی
+        result.Add(BuildCard("بازده یک هفته", "bi-calendar-week", latestDate.AddDays(-7), latestPrice));
+        result.Add(BuildCard("بازده یک ماه",  "bi-calendar-month", latestDate.AddMonths(-1), latestPrice));
+        result.Add(BuildCard("بازده یک سال",  "bi-calendar-year",  latestDate.AddYears(-1), latestPrice));
+
+        // بازده از ابتدای داده تا امروز
+        result.Add(BuildCard("بازده کل",      "bi-graph-up",       prices.First().Date, latestPrice));
+
+        return result;
+    }
+
+    private ReturnCard BuildCard(string title, string icon, DateTime fromDate, decimal latestPrice)
+    {
+        // نزدیک‌ترین رکورد به fromDate (اولین رکورد با تاریخ >= fromDate)
+        var baseRecord = prices!
+            .FirstOrDefault(p => p.Date >= fromDate);
+
+        if (baseRecord is null || baseRecord.AdjustedClosingPrice == 0)
+        {
+            return new ReturnCard(title, icon, false, 0, 0, 0, "-", "-");
+        }
+
+        var returnPercent = (latestPrice - baseRecord.AdjustedClosingPrice) / baseRecord.AdjustedClosingPrice * 100m;
+
+        return new ReturnCard(
+            Title: title,
+            Icon: icon,
+            HasData: true,
+            ReturnPercent: returnPercent,
+            FromDateValue: baseRecord.AdjustedClosingPrice,
+            ToDateValue: latestPrice,
+            FromDate: baseRecord.Date.ToPersianDate(),
+            ToDate: prices!.Last().Date.ToPersianDate()
+        );
+    }
+}
