@@ -1,3 +1,377 @@
+# Databases (don't commit user data)
+Data/Databases/*.db
+Data/Databases/*.db-shm
+Data/Databases/*.db-wal
+Data/Databases/*.duckdb
+Data/Databases/*.duckdb.wal
+
+راهنمای ذخیره قیمت‌ها
+تفاوت Blazor Web App و WebAssembly
+درخواست شفافسازی
+کاهش hiberfil.sys
+کپی فایل
+افزودن کیبورد فارسی در مینت
+ارتباطات متن فنی
+شبیه ساز TimeseriesArchive
+تفکیک IEC104
+بازنویسی کلاس RunTaskAfterDelay
+معماری امن انتقال داده
+زمان ثبت محاسبات
+راهنمای ذخیره قیمت‌ها
+
+سوال خیلی خوبیه. بذار اول یه نکته‌ی مهم رو روشن کنم:
+🎯 پاسخ کوتاه: نه، فایل دیتابیس نباید به پوشه‌ی build منتقل بشه
+
+فایل strategy-mate.db یه فایل داده‌ی ماندگار (persistent data) هست، نه یه asset مثل CSS یا تصویر. اگه بذاریش توی bin/Debug/net10.0/، با هر بار dotnet clean یا dotnet build ممکنه پاک بشه و همه‌ی داده‌هات از دست بره.
+🧠 چرا نباید توی build باشه؟
+
+پوشه‌ی build (bin/ و obj/) طبیعتش موقتی هست:
+
+    dotnet clean → همه‌چیز پاک می‌شه.
+
+    dotnet build → دوباره ساخته می‌شه.
+
+    dotnet publish → یه کپی جداگانه می‌سازه.
+
+    با هر تغییر target framework (مثلاً net9.0 → net10.0) → پوشه‌ی جدید.
+
+    اگه پروژه رو به سیستم دیگه‌ای منتقل کنی، bin/ معمولاً کپی نمی‌شه (چون توی .gitignore هست).
+
+فایل دیتابیس باید جایی باشه که با این عملیات‌ها دست‌نخورده بمونه.
+📁 مکان‌های درست برای فایل دیتابیس
+
+سه گزینه داری. بذار مقایسه کنیم:
+مکان	مسیر	مزایا	معایب	مناسب برای
+۱. ContentRoot	{پروژه}/Databases/	ساده، قابل نسخه‌بندی (اگه بخوای)، خوانا	اگه پروژه رو publish کنی، باید دستی کپی شه	توسعه (Development) ✅
+۲. کاربر	~/.local/share/StrategyMate/ (لینوکس)	مستقل از پروژه، دست‌نخورده با build	پیدا کردنش سخت‌تر	استفاده‌ی واقعی
+۳. کنار اجرایی	{AppContext.BaseDirectory}/Databases/	همیشه کنار exe	با clean پاک می‌شه	❌ اصلاً توصیه نمی‌شه
+
+توصیه‌ی من: گزینه‌ی ۱ برای توسعه، گزینه‌ی ۲ برای production.
+✅ راه‌حل توصیه‌شده: تشخیص خودکار محیط
+
+کد Program.cs رو طوری بنویسیم که:
+
+    توی Development: از {ContentRoot}/Databases/strategy-mate.db استفاده کنه (همون فایلی که ساختی).
+
+    توی Production: از یه مسیر پایدار در home directory کاربر استفاده کنه.
+
+Program.cs (بخش SQLite):
+csharp
+
+using Microsoft.EntityFrameworkCore;
+using StrategyMate.Components;
+using StrategyMate.Data;
+using StrategyMate.Services;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddRazorComponents()
+    .AddInteractiveServerComponents();
+
+// ========================================================================
+// SQLite database location
+// ========================================================================
+// In Development we keep the database inside the project folder so it is
+// easy to inspect, back up, and version-control (if desired). In Production
+// we move it to a stable per-user location so that `dotnet clean`,
+// re-publishing, or moving the app folder never destroys user data.
+string sqlitePath;
+
+if (builder.Environment.IsDevelopment())
+{
+    // {ProjectRoot}/Databases/strategy-mate.db
+    sqlitePath = Path.Combine(
+        builder.Environment.ContentRootPath,
+        "Databases",
+        "strategy-mate.db");
+}
+else
+{
+    // Linux:   ~/.local/share/StrategyMate/strategy-mate.db
+    // Windows: %APPDATA%\StrategyMate\strategy-mate.db
+    // macOS:   ~/Library/Application Support/StrategyMate/strategy-mate.db
+    var appData = Environment.GetFolderPath(
+        Environment.SpecialFolder.LocalApplicationData);
+
+    var dataDir = Path.Combine(appData, "StrategyMate");
+    Directory.CreateDirectory(dataDir);
+
+    sqlitePath = Path.Combine(dataDir, "strategy-mate.db");
+}
+
+// Make sure the parent directory exists (Development path).
+Directory.CreateDirectory(Path.GetDirectoryName(sqlitePath)!);
+
+builder.Services.AddDbContextFactory<AppDbContext>(options =>
+    options.UseSqlite($"Data Source={sqlitePath};Foreign Keys=True"));
+
+// ... بقیه‌ی تنظیمات (سرویس‌ها و pipeline) مثل قبل ...
+
+📂 ساختار فایل‌ها بعد از این تغییر
+
+در حین توسعه (dotnet run):
+text
+
+StrategyMate/
+├── Databases/
+│   └── strategy-mate.db    ← اینجا هست، با clean پاک نمی‌شه
+├── bin/
+│   └── Debug/
+│       └── net10.0/
+│           └── (exe و dllها، بدون دیتابیس)
+├── obj/
+├── Program.cs
+└── ...
+
+در production (بعد از publish):
+text
+
+~/.local/share/StrategyMate/
+└── strategy-mate.db        ← اینجا هست
+/opt/StrategyMate/
+└── StrategyMate.dll        ← exe و dllها
+
+⚠️ اگه می‌خوای فایل رو کپی کنی به build
+
+اگه به هر دلیلی (مثلاً برای تست) می‌خوای فایل دیتابیس کپی بشه به پوشه‌ی build (نه منتقل)، می‌تونی توی .csproj این رو بنویسی:
+xml
+
+<ItemGroup>
+    <None Update="Databases\strategy-mate.db">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+</ItemGroup>
+
+ولی این کار رو توصیه نمی‌کنم، چون:
+
+    دو کپی از فایل دیتابیس داری (یکی توی پروژه، یکی توی build). کدوم معتبره؟
+
+    اگه توی build تغییر بدی (مثلاً یه نماد اضافه کنی)، دفعه‌ی بعد که build کنی، فایل پروژه (که قدیمی‌تره) کپی می‌شه و تغییراتت از دست می‌ره.
+
+    PreserveNewest فقط وقتی فایل build قدیمی‌تر از فایل پروژه باشه، کپی می‌کنه. ولی اگه فایل build جدیدتر باشه، دست‌نخورده می‌مونه — که بازم باعث سردرگمی می‌شه.
+
+پس: فقط ContentRoot (پوشه‌ی Databases/) کافیه.
+🔍 توضیح فنی: ContentRootPath چیه؟
+
+builder.Environment.ContentRootPath مسیر پوشه‌ی اصلی پروژه رو برمی‌گردونه، نه پوشه‌ی bin/. این مسیر رو از چند جا می‌شه فهمید:
+
+    وقتی dotnet run می‌زنی: {پوشه‌ی پروژه}/
+
+    وقتی dotnet publish می‌زنی و بعد exe رو اجرا می‌کنی: {پوشه‌ی publish}/
+
+    توی Docker: {WORKDIR}/ (که معمولاً /app هست)
+
+پس ContentRootPath یه مسیر قابل اعتماده که به bin/ یا obj/ وابسته نیست.
+🧪 چک‌لیست تست
+
+بعد از این تغییرات:
+
+    پاک کردن دیتابیس قدیمی (اگه با مسیر اشتباه ساخته شده):
+    bash
+
+    rm -rf bin/Debug/net10.0/Databases
+    rm -rf bin/Debug/net10.0/strategy-mate.db
+
+    اطمینان از وجود فایل دیتابیس در Databases/:
+    bash
+
+    ls -la Databases/
+    # باید strategy-mate.db رو ببینی
+
+    اجرا:
+    bash
+
+    dotnet run
+
+    تست که فایل جابه‌جا نمی‌شه:
+    bash
+
+    dotnet clean
+    dotnet build
+    ls -la Databases/
+    # فایل باید هنوز باشه
+
+    تست که توی production درست کار می‌کنه (اختیاری):
+    bash
+
+    dotnet publish -c Release -o publish-test
+    cd publish-test
+    ASPNETCORE_ENVIRONMENT=Production ./StrategyMate
+    # باید فایل توی ~/.local/share/StrategyMate/ ساخته بشه
+
+📋 خلاصه
+سوال	جواب
+فایل دیتابیس باید به build منتقل بشه؟	❌ نه، توی bin/ با clean پاک می‌شه و داده‌ها از دست می‌ره.
+کجا بذاریم؟	Development: {پروژه}/Databases/، Production: ~/.local/share/StrategyMate/
+چطور تنظیم کنیم؟	توی Program.cs، بر اساس builder.Environment.IsDevelopment() مسیر رو انتخاب کن.
+ContentRootPath چیه؟	مسیر پوشه‌ی اصلی پروژه، مستقل از bin/ و obj/.
+
+اگه تأیید می‌کنی، این تغییر رو توی Program.cs اعمال کن و بگو تا بریم سراغ قدم بعدی. 🚀
+قبلا به من گفته بودی در پوشه data یک پوشه databaseبساز و دیتابیس را داخل آن قرار بده به همراه duckdb
+
+بله، کاملاً درست می‌گی. قبلاً پیشنهاد داده بودم که پوشه‌ی Data/Databases/ داخل پوشه‌ی Data باشه (نه Databases/ در ریشه‌ی پروژه). این ساختار منطقی‌تره چون همه‌ی فایل‌های داده کنار هم هستن. بذار دوباره و با دقت توضیح بدم.
+📁 ساختار پیشنهادی پوشه‌ها
+text
+
+StrategyMate/
+├── Data/
+│   ├── AppDbContext.cs
+│   ├── MarketDbContext.cs          ← مربوط به DuckDB (فعلاً لازم نیست)
+│   ├── sqlite-schema.sql
+│   └── Databases/
+│       ├── strategy-mate.db        ← فایل SQLite (دستی ساختی)
+│       └── market.duckdb           ← فایل DuckDB (بعداً)
+├── Models/
+├── Services/
+├── Components/
+├── Program.cs
+└── ...
+
+چرا این ساختار بهتره؟
+
+    همه‌ی فایل‌های مرتبط با داده یکجا هستن (Data/).
+
+    مسیر Data/Databases/ به وضوح نشون می‌ده که این فایل‌ها داده‌ی برنامه‌ان، نه asset.
+
+    جداسازی از wwwroot/ که مخصوص فایل‌های استاتیک عمومیه.
+
+✅ تنظیمات Program.cs
+
+Program.cs (بخش SQLite):
+csharp
+
+using Microsoft.EntityFrameworkCore;
+using StrategyMate.Components;
+using StrategyMate.Data;
+using StrategyMate.Services;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddRazorComponents()
+    .AddInteractiveServerComponents();
+
+// ========================================================================
+// SQLite database location
+// ========================================================================
+// During development we keep the database inside Data/Databases/ so it
+// sits next to the related code and script files. This path is inside
+// ContentRoot (the project folder), NOT inside bin/ — so `dotnet clean`
+// and `dotnet build` will never touch it.
+//
+// In production we move it to a stable per-user location so that
+// re-publishing or moving the app folder never destroys user data.
+string sqlitePath;
+
+if (builder.Environment.IsDevelopment())
+{
+    // {ProjectRoot}/Data/Databases/strategy-mate.db
+    sqlitePath = Path.Combine(
+        builder.Environment.ContentRootPath,
+        "Data",
+        "Databases",
+        "strategy-mate.db");
+}
+else
+{
+    // Linux:   ~/.local/share/StrategyMate/strategy-mate.db
+    // Windows: %APPDATA%\StrategyMate\strategy-mate.db
+    // macOS:   ~/Library/Application Support/StrategyMate/strategy-mate.db
+    var appData = Environment.GetFolderPath(
+        Environment.SpecialFolder.LocalApplicationData);
+
+    var dataDir = Path.Combine(appData, "StrategyMate");
+    Directory.CreateDirectory(dataDir);
+
+    sqlitePath = Path.Combine(dataDir, "strategy-mate.db");
+}
+
+// Ensure the parent directory exists (relevant for the dev path).
+Directory.CreateDirectory(Path.GetDirectoryName(sqlitePath)!);
+
+builder.Services.AddDbContextFactory<AppDbContext>(options =>
+    options.UseSqlite($"Data Source={sqlitePath};Foreign Keys=True"));
+
+// ... بقیه‌ی تنظیمات مثل قبل ...
+
+🦆 DuckDB (برای آینده، فعلاً کامنت)
+
+چون هنوز DuckDB کار نمی‌کنیم، این بخش فعلاً کامنت بمونه. هر وقت خواستیم فعالش کنیم، فقط کامنت رو برمی‌داریم:
+csharp
+
+// ========================================================================
+// DuckDB database location (disabled until we start using DuckDB)
+// ========================================================================
+// string duckPath;
+//
+// if (builder.Environment.IsDevelopment())
+// {
+//     duckPath = Path.Combine(
+//         builder.Environment.ContentRootPath,
+//         "Data",
+//         "Databases",
+//         "market.duckdb");
+// }
+// else
+// {
+//     var appData = Environment.GetFolderPath(
+//         Environment.SpecialFolder.LocalApplicationData);
+//     var dataDir = Path.Combine(appData, "StrategyMate");
+//     Directory.CreateDirectory(dataDir);
+//     duckPath = Path.Combine(dataDir, "market.duckdb");
+// }
+//
+// builder.Services.AddSingleton(new MarketDbContext(duckPath));
+
+📄 فایل اسکریپت SQL (کنار دیتابیس، در Data/)
+
+فایل Data/sqlite-schema.sql رو بساز. چون ContentRootPath رو به Data/Databases/ تغییر دادیم، مسیر خوندن اسکریپت توی Program.cs هم باید درست باشه:
+csharp
+
+// ================= Ensure schema =================
+using (var scope = app.Services.CreateScope())
+{
+    var dbFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
+    await using var ctx = await dbFactory.CreateDbContextAsync();
+
+    // We author the schema as a SQL file to keep it fully under our control
+    // (timestamps as TEXT, specific indexes, trigger, etc.). The script lives
+    // in Data/ (next to Databases/), not inside the DB folder, to keep it
+    // version-controllable as source code.
+    var scriptPath = Path.Combine(
+        builder.Environment.ContentRootPath, "Data", "sqlite-schema.sql");
+
+    if (File.Exists(scriptPath))
+    {
+        var sql = await File.ReadAllTextAsync(scriptPath);
+        await ctx.Database.ExecuteSqlRawAsync(sql);
+    }
+    else
+    {
+        // Fallback (only if the script is missing).
+        await ctx.Database.EnsureCreatedAsync();
+    }
+}
+
+🚫 .gitignore — نکته‌ی مهم
+
+چون فایل دیتابیس ممکنه شامل داده‌های شخصی باشه، بهتره از git خارجش کنی. یه فایل .gitignore توی ریشه‌ی پروژه بساز (اگه نداری) و اینا رو اضافه کن:
+gitignore
+
+# Databases (don't commit user data)
+Data/Databases/*.db
+Data/Databases/*.db-shm
+Data/Databases/*.db-wal
+Data/Databases/*.duckdb
+Data/Databases/*.duckdb.wal
+
+# Build artifacts
+bin/
+obj/
+
+# VS Code / Rider
+.vs/
+.vscode/
+
 ## Ignore Visual Studio temporary files, build results, and
 ## files generated by popular Visual Studio add-ons.
 ##
